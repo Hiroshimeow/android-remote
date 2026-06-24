@@ -68,14 +68,16 @@ The control protocol uses JSON-based WebRTC DataChannels for low-latency input e
 
 ```bash
 # Run unit tests
-gradle :app:testDebugUnitTest
+./gradlew :app:testDebugUnitTest
 
 # Generate Roborazzi screenshots
-gradle :app:recordRoborazziDebug
+./gradlew :app:recordRoborazziDebug
 
 # Verify Roborazzi screenshots
-gradle :app:verifyRoborazziDebug
+./gradlew :app:verifyRoborazziDebug
 ```
+
+> **Note for Local Building outside AI Studio:** This repository is originally generated in an AI Studio Android environment which bundles Kotlin Support directly into its custom Android Gradle Plugin (AGP). Thus, `org.jetbrains.kotlin.android` is omitted from `build.gradle.kts` to avoid conflicts. If you clone this repository to build locally with standard AGP, you may need to add `alias(libs.plugins.kotlin.android)` to `app/build.gradle.kts`.
 
 ## License
 
