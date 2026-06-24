@@ -1,5 +1,7 @@
 plugins {
   alias(libs.plugins.android.application)
+  // Uncomment the following line if building locally outside of Google AI Studio
+  // alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)

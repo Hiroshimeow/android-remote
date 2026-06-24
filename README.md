@@ -25,8 +25,14 @@ The control protocol uses JSON-based WebRTC DataChannels for low-latency input e
 
 ### 1. Installation
 
-1. Build the APK using Android Studio or Gradle (`gradle :app:assembleDebug`).
-2. Install the APK on the target Android device.
+**Option A: Pre-built APK (Recommended for Reviewers)**
+A pre-built APK is available directly in the root of this repository:
+- `RemoteHelper.apk`
+Download and install this file on your target Android device.
+
+**Option B: Build from Source**
+1. Build the APK using Gradle (`./gradlew :app:assembleDebug`).
+2. Install the generated APK (`app/build/outputs/apk/debug/app-debug.apk`) on the target Android device.
 
 ### 2. Device Configuration
 
