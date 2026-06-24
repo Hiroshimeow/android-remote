@@ -1,0 +1,6 @@
+{
+  "name": "RemoteHelper",
+  "description": "Remote control app using WebRTC and AccessibilityService.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Helper</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #222; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        #video-container { position: relative; max-width: 100%; max-height: 80vh; border: 1px solid #444; }
+        video { max-width: 100%; max-height: 80vh; display: block; }
+        #controls { margin-top: 20px; display: flex; gap: 10px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        #status { margin-bottom: 10px; font-size: 14px; color: #aaa; }
+    </style>
+</head>
+<body>
+    <div id="status">Connecting...</div>
+    <div id="video-container">
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+    <div id="controls">
+        <button id="btnBack">Back</button>
+        <button id="btnReconnect">Reconnect</button>
+        <button id="btnStop">Stop</button>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const videoEl = document.getElementById('remoteVideo');
+        
+        let ws;
+        let pc;
+        let controlChannel;
+        
+        function connect() {
+            statusEl.textContent = "Connecting WebSocket...";
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
+            
+            ws.onopen = () => {
+                statusEl.textContent = "WebSocket connected. Waiting for WebRTC...";
+                // TODO: Send auth/pin
+            };
+            
+            ws.onmessage = (event) => {
+                console.log("WS Msg:", event.data);
+                // TODO: Handle signaling
+            };
+            
+            ws.onclose = () => {
+                statusEl.textContent = "WebSocket closed.";
+            };
+        }
+        
+        // Pointer handling for video
+        let startEvent = null;
+        
+        videoEl.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            startEvent = { x: e.clientX, y: e.clientY, t: Date.now() };
+        });
+        
+        videoEl.addEventListener('pointerup', (e) => {
+            e.preventDefault();
+            if (!startEvent) return;
+            
+            const rect = videoEl.getBoundingClientRect();
+            const dx = e.clientX - startEvent.x;
+            const dy = e.clientY - startEvent.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if (dist < 10) {
+                // Tap
+                const nx = (e.clientX - rect.left) / rect.width;
+                const ny = (e.clientY - rect.top) / rect.height;
+                sendControl({
+                    v: 1, type: "gesture.tap",
+                    x: nx, y: ny, ts: Date.now()
+                });
+            } else {
+                // Swipe
+                const nx1 = (startEvent.x - rect.left) / rect.width;
+                const ny1 = (startEvent.y - rect.top) / rect.height;
+                const nx2 = (e.clientX - rect.left) / rect.width;
+                const ny2 = (e.clientY - rect.top) / rect.height;
+                const dur = Math.max(100, Date.now() - startEvent.t);
+                sendControl({
+                    v: 1, type: "gesture.swipe",
+                    x1: nx1, y1: ny1, x2: nx2, y2: ny2, durationMs: dur
+                });
+            }
+            startEvent = null;
+        });
+        
+        document.getElementById('btnBack').addEventListener('click', () => {
+            sendControl({ v: 1, type: "system.back" });
+        });
+        
+        function sendControl(msg) {
+            if (controlChannel && controlChannel.readyState === 'open') {
+                controlChannel.send(JSON.stringify(msg));
+            } else {
+                console.log("Channel not open. Mock sending via WS for testing:");
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "control_mock", data: msg }));
+                }
+            }
+        }
+        
+        connect();
+    </script>
+</body>
+</html>
