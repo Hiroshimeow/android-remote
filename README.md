@@ -1,90 +1,20 @@
-# RemoteHelper - Family Support MVP
+# RemoteHelper
 
-RemoteHelper is a private Android application designed to provide remote support to family members. It enables secure screen sharing and remote gesture control directly from a web browser over a local network (LAN) or a VPN like Tailscale, without relying on third-party cloud relays or the Play Store.
+## Trạng thái MVP End-to-End
+Dự án đã được tái cấu trúc thành công thành một MVP WebRTC Remote Control theo đúng hướng dẫn audit.
 
-## Key Features
+### Các phase đã hoàn thành:
+1. **Chuẩn hóa Project & Dependency**: Đổi namespace thành `com.hiroshimeow.remotehelper`, xóa bỏ các dependency thừa (Firebase, Room, Retrofit, v.v.), chỉ giữ lại Ktor, WebRTC và Jetpack Compose.
+2. **Protocol & Authentication Gate**: Chuẩn hóa envelope giao tiếp theo bản v1 (`ProtocolEnvelope`, `ProtocolTypes`), yêu cầu xác thực bằng PIN trước khi cho phép WebRTC SDP/ICE negotiation hoặc điều khiển gesture.
+3. **Foreground Service & Session Ownership**: `MainActivity` không còn giữ trạng thái server; `RemoteSessionService` (Foreground Service) là chủ sở hữu của MediaProjection, Ktor server và WebRTC PeerConnection, với thông báo liên tục khi màn hình đang được chia sẻ.
+4. **Android WebRTC Publisher**: Triển khai `WebRtcStreamEngine` tích hợp `ScreenCapturerAndroid` và tạo `Offer` chuẩn để đẩy qua WebSocket.
+5. **Browser WebRTC Client**: Cập nhật file `index.html` tích hợp màn hình nhập PIN xác thực, thiết lập kết nối `RTCPeerConnection` sau khi xác thực thành công, trả về `Answer` và xử lý letterboxing (scale/crop tọa độ pointer cho chính xác).
+6. **Input Pipeline & Gesture Logic**: Cải tiến `BasicCoordinateMapper` sử dụng `WindowMetrics`, và thêm `GestureResultCallback` kết hợp cơ chế `isDispatching` để đảm bảo hệ thống không nhận lệnh chồng chéo, tránh crash `AccessibilityService`.
+7. **Bảo mật**: Vô hiệu hóa `allowBackup`, chặn kết nối nếu chưa đăng nhập, giới hạn 1 controller đồng thời, và vô hiệu hóa controller cũ khi session kết thúc.
 
-- **WebRTC Screen Sharing**: Streams the Android device screen to a web browser at up to 720p 30fps.
-- **Remote Gesture Control**: Translates clicks and swipes on the web interface into actual tap and swipe gestures on the Android device using `AccessibilityService`.
-- **Zero-Install Client**: The controller only needs a modern web browser (PC or mobile) to access the device via an embedded local web server (Ktor).
-- **Secure Access**: Each session generates a random 6-digit PIN that must be entered on the web client to establish a connection.
-- **Privacy-First**: Operates entirely within your private network. No video or input data leaves your local network or Tailscale tunnel.
-- **High-Density UI**: A modern, colorful interface inspired by Material Design 3 guidelines for clear session and permission management.
-
-## Architecture
-
-The project consists of three main engine abstractions to ensure modularity:
-
-1. **StreamEngine**: Handles MediaProjection and WebRTC video tracks (H.264/VP8).
-2. **InputEngine**: Uses Android's `AccessibilityService` to perform taps and swipes (`android:canPerformGestures="true"`).
-3. **SessionManager**: Manages the connection lifecycle, ensuring only one controller can connect at a time with a valid PIN.
-
-The control protocol uses JSON-based WebRTC DataChannels for low-latency input event transmission.
-
-## Setup & Usage
-
-### 1. Installation
-
-**Option A: Pre-built APK (Recommended for Reviewers)**
-A pre-built APK is available directly in the root of this repository:
-- `RemoteHelper.apk`
-Download and install this file on your target Android device.
-
-**Option B: Build from Source**
-1. Build the APK using Gradle (`./gradlew :app:assembleDebug`).
-2. Install the generated APK (`app/build/outputs/apk/debug/app-debug.apk`) on the target Android device.
-
-### 2. Device Configuration
-
-1. **Accessibility Service**: Open the app. The app will prompt you to enable the Accessibility Service. Go to **Settings > Accessibility** and enable **Remote Helper**. This is required for remote tap/swipe control.
-2. **Network**: Ensure both the Android device and the controller (PC/Laptop) are on the same Wi-Fi network or connected to the same Tailscale network.
-
-### 3. Starting a Session
-
-1. Open the RemoteHelper app on the Android device.
-2. Tap the **START SESSION** button.
-3. Grant permission when the Android system asks to **Start recording or casting with RemoteHelper**.
-4. The app will generate a 6-digit **Secure Access PIN** and display the device's IP address.
-
-### 4. Connecting from a PC
-
-1. On your PC, open a web browser.
-2. Navigate to the URL shown on the Android app (e.g., `http://192.168.1.100:8080` or Tailscale IP).
-3. The web page will load directly from the Android device.
-4. Enter the 6-digit PIN when prompted to establish the WebRTC connection.
-5. You can now see the screen and click/drag on the video to control the device!
-
-## Screenshots
-
-*(Screenshots generated by Roborazzi during tests)*
-
-| Idle Screen | Active Session |
-|---|---|
-| ![Idle Screen](app/src/test/screenshots/mainscreen.png) | ![Active Session](app/src/test/screenshots/mainscreen_active.png) |
-
-## Development
-
-- Language: Kotlin, JavaScript (Client)
-- UI Toolkit: Jetpack Compose
-- Server: Ktor (Embedded)
-- Input: AccessibilityService
-- Streaming: WebRTC
-
-### Running Tests
-
-```bash
-# Run unit tests
-./gradlew :app:testDebugUnitTest
-
-# Generate Roborazzi screenshots
-./gradlew :app:recordRoborazziDebug
-
-# Verify Roborazzi screenshots
-./gradlew :app:verifyRoborazziDebug
-```
-
-> **Note for Local Building outside AI Studio:** This repository is originally generated in an AI Studio Android environment which bundles Kotlin Support directly into its custom Android Gradle Plugin (AGP). Thus, `org.jetbrains.kotlin.android` is omitted from `build.gradle.kts` to avoid conflicts. If you clone this repository to build locally with standard AGP, you may need to add `alias(libs.plugins.kotlin.android)` to `app/build.gradle.kts`.
-
-## License
-
-This project is intended for personal and family use. Feel free to fork and modify it for your own remote support needs.
+## Hướng dẫn cài đặt
+1. Build file APK thông qua Android Studio hoặc CLI `gradle :app:assembleDebug`.
+2. Cài đặt APK trên thiết bị Android, cấp quyền Accessibility cho Remote Helper trong Settings.
+3. Mở ứng dụng, nhấn **START SESSION** và cấp quyền MediaProjection (quay màn hình).
+4. Truy cập URL hiển thị trên màn hình ứng dụng từ trình duyệt PC/Mobile (cùng mạng LAN hoặc Tailscale).
+5. Nhập mã PIN bảo mật 6 chữ số và bắt đầu điều khiển từ xa.

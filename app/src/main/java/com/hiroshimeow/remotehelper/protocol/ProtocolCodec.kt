@@ -1,0 +1,8 @@
+package com.hiroshimeow.remotehelper.protocol
+
+import kotlinx.serialization.json.Json
+
+val protocolJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}

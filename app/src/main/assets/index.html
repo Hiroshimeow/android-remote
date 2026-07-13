@@ -6,8 +6,13 @@
     <title>Remote Helper</title>
     <style>
         body { font-family: sans-serif; margin: 0; padding: 0; background: #222; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        #video-container { position: relative; max-width: 100%; max-height: 80vh; border: 1px solid #444; }
-        video { max-width: 100%; max-height: 80vh; display: block; }
+        #auth-container { background: #333; padding: 20px; border-radius: 8px; text-align: center; }
+        #auth-container input { font-size: 24px; padding: 10px; width: 150px; text-align: center; letter-spacing: 2px; }
+        #auth-container button { font-size: 18px; padding: 10px 20px; margin-top: 10px; cursor: pointer; }
+        
+        #app-container { display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; }
+        #video-container { position: relative; max-width: 100%; max-height: 80vh; border: 1px solid #444; overflow: hidden; }
+        video { max-width: 100%; max-height: 80vh; display: block; object-fit: contain; }
         #controls { margin-top: 20px; display: flex; gap: 10px; }
         button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
         #status { margin-bottom: 10px; font-size: 14px; color: #aaa; }
@@ -15,40 +20,166 @@
 </head>
 <body>
     <div id="status">Connecting...</div>
-    <div id="video-container">
-        <video id="remoteVideo" autoplay playsinline></video>
+    
+    <div id="auth-container">
+        <h2>Enter PIN</h2>
+        <input type="text" id="pin-input" maxlength="6" autocomplete="off" />
+        <br>
+        <button id="btn-submit-pin">Connect</button>
     </div>
-    <div id="controls">
-        <button id="btnBack">Back</button>
-        <button id="btnReconnect">Reconnect</button>
-        <button id="btnStop">Stop</button>
+
+    <div id="app-container">
+        <div id="video-container">
+            <video id="remoteVideo" autoplay playsinline muted></video>
+        </div>
+        <div id="controls">
+            <button id="btnBack">Back</button>
+            <button id="btnReconnect">Reconnect</button>
+        </div>
     </div>
 
     <script>
         const statusEl = document.getElementById('status');
+        const authContainer = document.getElementById('auth-container');
+        const appContainer = document.getElementById('app-container');
+        const pinInput = document.getElementById('pin-input');
+        const btnSubmitPin = document.getElementById('btn-submit-pin');
         const videoEl = document.getElementById('remoteVideo');
         
         let ws;
         let pc;
         let controlChannel;
+        let sessionToken = null;
+        let isAuthenticated = false;
         
-        function connect() {
+        function uuidv4() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        
+        function sendEnvelope(type, payload) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const msg = {
+                v: 1,
+                id: uuidv4(),
+                type: type,
+                ts: Date.now(),
+                payload: payload
+            };
+            ws.send(JSON.stringify(msg));
+        }
+
+        function connectWs() {
             statusEl.textContent = "Connecting WebSocket...";
             ws = new WebSocket(`ws://${window.location.host}/ws`);
             
             ws.onopen = () => {
-                statusEl.textContent = "WebSocket connected. Waiting for WebRTC...";
-                // TODO: Send auth/pin
+                statusEl.textContent = "Connected. Please enter PIN.";
+                btnSubmitPin.disabled = false;
             };
             
-            ws.onmessage = (event) => {
-                console.log("WS Msg:", event.data);
-                // TODO: Handle signaling
+            ws.onmessage = async (event) => {
+                const msg = JSON.parse(event.data);
+                console.log("WS Msg:", msg.type);
+                
+                if (msg.type === "auth.ok") {
+                    isAuthenticated = true;
+                    sessionToken = msg.payload.token;
+                    statusEl.textContent = "Authenticated. Waiting for video stream...";
+                    authContainer.style.display = "none";
+                    appContainer.style.display = "flex";
+                } else if (msg.type === "error") {
+                    statusEl.textContent = "Error: " + msg.payload.message;
+                    if (msg.payload.code === "auth_failed" || msg.payload.code === "rate_limited") {
+                        btnSubmitPin.disabled = false;
+                    }
+                } else if (msg.type === "webrtc.offer" && isAuthenticated) {
+                    await handleOffer(msg.payload);
+                } else if (msg.type === "webrtc.ice" && isAuthenticated) {
+                    await handleIceCandidate(msg.payload);
+                }
             };
             
             ws.onclose = () => {
                 statusEl.textContent = "WebSocket closed.";
+                isAuthenticated = false;
+                cleanupWebRTC();
             };
+        }
+        
+        btnSubmitPin.addEventListener('click', () => {
+            const pin = pinInput.value;
+            if (pin.length !== 6) {
+                alert("PIN must be 6 digits");
+                return;
+            }
+            btnSubmitPin.disabled = true;
+            statusEl.textContent = "Authenticating...";
+            sendEnvelope("auth.request", { pin: pin });
+        });
+
+        async function initWebRTC() {
+            cleanupWebRTC();
+            pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+            
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    sendEnvelope("webrtc.ice", {
+                        sdpMid: event.candidate.sdpMid,
+                        sdpMLineIndex: event.candidate.sdpMLineIndex,
+                        candidate: event.candidate.candidate
+                    });
+                }
+            };
+            
+            pc.ontrack = (event) => {
+                console.log("Got remote track");
+                if (videoEl.srcObject !== event.streams[0]) {
+                    videoEl.srcObject = event.streams[0];
+                }
+                statusEl.textContent = "Connected (Video Active)";
+            };
+            
+            pc.onconnectionstatechange = () => {
+                statusEl.textContent = "WebRTC: " + pc.connectionState;
+            };
+        }
+        
+        async function handleOffer(payload) {
+            if (!pc) await initWebRTC();
+            await pc.setRemoteDescription(new RTCSessionDescription({
+                type: payload.type,
+                sdp: payload.sdp
+            }));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            sendEnvelope("webrtc.answer", {
+                type: answer.type,
+                sdp: answer.sdp
+            });
+        }
+        
+        async function handleIceCandidate(payload) {
+            if (!pc) return;
+            await pc.addIceCandidate(new RTCIceCandidate({
+                sdpMid: payload.sdpMid,
+                sdpMLineIndex: payload.sdpMLineIndex,
+                candidate: payload.candidate
+            }));
+        }
+        
+        function cleanupWebRTC() {
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+            if (videoEl.srcObject) {
+                videoEl.srcObject = null;
+            }
         }
         
         // Pointer handling for video
@@ -63,50 +194,68 @@
             e.preventDefault();
             if (!startEvent) return;
             
+            // Note: Coordinate mapping might need adjustment based on actual video aspect ratio
             const rect = videoEl.getBoundingClientRect();
+            
+            // Calculate video intrinsic aspect ratio compared to container
+            let videoRatio = videoEl.videoWidth / videoEl.videoHeight;
+            let containerRatio = rect.width / rect.height;
+            
+            let actualWidth = rect.width;
+            let actualHeight = rect.height;
+            let offsetX = 0;
+            let offsetY = 0;
+            
+            if (videoRatio > containerRatio) {
+                // Letterbox top/bottom
+                actualHeight = rect.width / videoRatio;
+                offsetY = (rect.height - actualHeight) / 2;
+            } else {
+                // Letterbox left/right
+                actualWidth = rect.height * videoRatio;
+                offsetX = (rect.width - actualWidth) / 2;
+            }
+            
+            const localX = e.clientX - rect.left - offsetX;
+            const localY = e.clientY - rect.top - offsetY;
+            
+            if (localX < 0 || localX > actualWidth || localY < 0 || localY > actualHeight) {
+                startEvent = null;
+                return; // Out of bounds
+            }
+            
             const dx = e.clientX - startEvent.x;
             const dy = e.clientY - startEvent.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
             
             if (dist < 10) {
-                // Tap
-                const nx = (e.clientX - rect.left) / rect.width;
-                const ny = (e.clientY - rect.top) / rect.height;
-                sendControl({
-                    v: 1, type: "gesture.tap",
-                    x: nx, y: ny, ts: Date.now()
-                });
+                const nx = localX / actualWidth;
+                const ny = localY / actualHeight;
+                sendEnvelope("gesture.tap", { x: nx, y: ny });
             } else {
                 // Swipe
-                const nx1 = (startEvent.x - rect.left) / rect.width;
-                const ny1 = (startEvent.y - rect.top) / rect.height;
-                const nx2 = (e.clientX - rect.left) / rect.width;
-                const ny2 = (e.clientY - rect.top) / rect.height;
+                const startLocalX = startEvent.x - rect.left - offsetX;
+                const startLocalY = startEvent.y - rect.top - offsetY;
+                const nx1 = startLocalX / actualWidth;
+                const ny1 = startLocalY / actualHeight;
+                const nx2 = localX / actualWidth;
+                const ny2 = localY / actualHeight;
                 const dur = Math.max(100, Date.now() - startEvent.t);
-                sendControl({
-                    v: 1, type: "gesture.swipe",
-                    x1: nx1, y1: ny1, x2: nx2, y2: ny2, durationMs: dur
-                });
+                sendEnvelope("gesture.swipe", { x1: nx1, y1: ny1, x2: nx2, y2: ny2, durationMs: dur });
             }
             startEvent = null;
         });
         
         document.getElementById('btnBack').addEventListener('click', () => {
-            sendControl({ v: 1, type: "system.back" });
+            sendEnvelope("system.back", {});
         });
         
-        function sendControl(msg) {
-            if (controlChannel && controlChannel.readyState === 'open') {
-                controlChannel.send(JSON.stringify(msg));
-            } else {
-                console.log("Channel not open. Mock sending via WS for testing:");
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: "control_mock", data: msg }));
-                }
-            }
-        }
+        document.getElementById('btnReconnect').addEventListener('click', () => {
+            if (ws) ws.close();
+            connectWs();
+        });
         
-        connect();
+        connectWs();
     </script>
 </body>
 </html>
